@@ -2,6 +2,7 @@ package uiscom
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"github.com/ybbus/jsonrpc/v3"
 	"time"
@@ -16,6 +17,10 @@ func (t Target) URL() string {
 const (
 	TargetComagic = Target("https://dataapi.comagic.ru/v2.0")
 	TargetUiscom  = Target("https://dataapi.uiscom.ru/v2.0")
+
+	UiscomMediaURL          = `https://app.uiscom.ru/system/media/`
+	UiscomTalkMediaURL      = UiscomMediaURL + `talk/`
+	UiscomVoiceMailMediaURL = UiscomMediaURL + `voice_mail/`
 )
 
 type Client struct {
@@ -56,7 +61,7 @@ func (c Client) GetAccount(ctx context.Context) (any, error) {
 	return c.call(ctx, "get.account", map[string]string{"access_token": c.AccessToken})
 }
 
-func (c Client) GetCalls(ctx context.Context, userID int, dateFrom, dateTill time.Time, limit, offset int, fields ...Field) (any, error) {
+func (c Client) GetCalls(ctx context.Context, userID int, dateFrom, dateTill time.Time, limit, offset int, filter *Filter, fields ...Field) (any, error) {
 	params := map[string]any{"access_token": c.AccessToken}
 	if userID >= 0 {
 		params["user_id"] = userID
@@ -65,13 +70,16 @@ func (c Client) GetCalls(ctx context.Context, userID int, dateFrom, dateTill tim
 	params["date_till"] = TimeToString(dateTill)
 	params["limit"] = limit
 	params["offset"] = offset
+	if filter != nil {
+		params["filter"] = json.RawMessage(filter.JsonPart())
+	}
 	if fields != nil {
 		params["fields"] = fields
 	}
 	return c.call(ctx, "get.calls_report", params)
 }
 
-func (c Client) GetCallLegs(ctx context.Context, userID int, dateFrom, dateTill time.Time, limit, offset int, fields ...Field) (any, error) {
+func (c Client) GetCallLegs(ctx context.Context, userID int, dateFrom, dateTill time.Time, limit, offset int, filter *Filter, fields ...Field) (any, error) {
 	params := map[string]any{"access_token": c.AccessToken}
 	if userID >= 0 {
 		params["user_id"] = userID
@@ -80,13 +88,16 @@ func (c Client) GetCallLegs(ctx context.Context, userID int, dateFrom, dateTill 
 	params["date_till"] = TimeToString(dateTill)
 	params["limit"] = limit
 	params["offset"] = offset
+	if filter != nil {
+		params["filter"] = json.RawMessage(filter.JsonPart())
+	}
 	if fields != nil {
 		params["fields"] = fields
 	}
 	return c.call(ctx, "get.call_legs_report", params)
 }
 
-func (c Client) GetEmployeeStat(ctx context.Context, userID int, dateFrom, dateTill time.Time, limit, offset int, defaultStatuses bool, fields ...Field) (any, error) {
+func (c Client) GetEmployeeStat(ctx context.Context, userID int, dateFrom, dateTill time.Time, limit, offset int, filter *Filter, defaultStatuses bool, fields ...Field) (any, error) {
 	params := map[string]any{"access_token": c.AccessToken}
 	if userID >= 0 {
 		params["user_id"] = userID
@@ -96,6 +107,9 @@ func (c Client) GetEmployeeStat(ctx context.Context, userID int, dateFrom, dateT
 	params["limit"] = limit
 	params["offset"] = offset
 	params["only_default_statuses_in_stats"] = defaultStatuses
+	if filter != nil {
+		params["filter"] = json.RawMessage(filter.JsonPart())
+	}
 	if fields != nil {
 		params["fields"] = fields
 	}

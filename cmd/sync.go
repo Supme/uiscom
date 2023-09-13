@@ -24,7 +24,7 @@ import (
 	"time"
 )
 
-var Version = "0.0.1"
+var Version = "0.1.0"
 var verbose bool
 
 func main() {
@@ -152,7 +152,7 @@ func syncCalls(dbpool *pgxpool.Pool, client *uiscom.Client, from, till time.Time
 							"communication_id",
 							"call_records",
 							//"wav_call_records", // всегда пустой массив []
-							//"full_record_file_link", // ссылка на склееную запись
+							//"full_record_file_link", // ссылка на склеенную запись
 							"voice_mail_records",
 							"virtual_phone_number",
 							"source",
@@ -165,7 +165,7 @@ func syncCalls(dbpool *pgxpool.Pool, client *uiscom.Client, from, till time.Time
 		)...,
 	)
 
-	resp, err := client.GetCalls(context.Background(), -1, from, till, 10000, 0, fields...)
+	resp, err := client.GetCalls(context.Background(), -1, from, till, 10000, 0, nil, fields...)
 	if err != nil {
 		return err
 	}
@@ -177,26 +177,41 @@ func syncCalls(dbpool *pgxpool.Pool, client *uiscom.Client, from, till time.Time
 				return err
 			}
 
-			errch := make(chan error)
+			errDownload := make(chan error)
 			go func() {
 				if mediaFolder != "" {
-					uiscomMediaURL := `https://app.uiscom.ru/system/media/talk/`
 					var mediaURLs []string
-					for _, r := range val["call_records"].([]any) {
-						u, err := url.JoinPath(uiscomMediaURL,
-							strconv.FormatInt(val["communication_id"].(int64), 10),
-							r.(string), "/")
-						if err != nil {
-							errch <- err
-							return
+					var communicationFolder string
+
+					if len(val["call_records"].([]any)) != 0 {
+						for _, r := range val["call_records"].([]any) {
+							u, err := url.JoinPath(uiscom.UiscomTalkMediaURL,
+								strconv.FormatInt(val["communication_id"].(int64), 10),
+								r.(string), "/")
+							if err != nil {
+								errDownload <- err
+								return
+							}
+							mediaURLs = append(mediaURLs, u)
 						}
-						mediaURLs = append(mediaURLs, u)
+						communicationFolder = strconv.FormatInt(val["communication_id"].(int64), 10)
+						if val["direction"].(string) == "out" {
+							communicationFolder = "out_" + communicationFolder
+						}
+					} else if len(val["voice_mail_records"].([]any)) != 0 {
+						for _, r := range val["voice_mail_records"].([]any) {
+							u, err := url.JoinPath(uiscom.UiscomVoiceMailMediaURL,
+								strconv.FormatInt(val["communication_id"].(int64), 10),
+								r.(string), "/")
+							if err != nil {
+								errDownload <- err
+								return
+							}
+							mediaURLs = append(mediaURLs, u)
+						}
+						communicationFolder = "vm_" + strconv.FormatInt(val["communication_id"].(int64), 10)
 					}
 
-					communicationFolder := strconv.FormatInt(val["communication_id"].(int64), 10)
-					if val["direction"].(string) == "out" {
-						communicationFolder = "out_" + communicationFolder
-					}
 					mFolder := filepath.Join(mediaFolder,
 						fmt.Sprintf("%4d", val["start_time"].(time.Time).Year()),
 						fmt.Sprintf("%02d", val["start_time"].(time.Time).Month()),
@@ -206,11 +221,11 @@ func syncCalls(dbpool *pgxpool.Pool, client *uiscom.Client, from, till time.Time
 
 					err = RecordsDownload(mFolder, mediaURLs...)
 					if err != nil {
-						errch <- err
+						errDownload <- err
 						return
 					}
 				}
-				errch <- nil
+				errDownload <- nil
 				return
 			}()
 
@@ -243,7 +258,7 @@ func syncCalls(dbpool *pgxpool.Pool, client *uiscom.Client, from, till time.Time
 				return err
 			}
 
-			err = <-errch
+			err = <-errDownload
 			if err != nil {
 				return err
 			}
@@ -258,7 +273,7 @@ func syncCalls(dbpool *pgxpool.Pool, client *uiscom.Client, from, till time.Time
 func syncCallLegs(dbpool *pgxpool.Pool, client *uiscom.Client, from, till time.Time) error {
 	fields := uiscom.GetCallLegsReportResponseParametersFields
 
-	resp, err := client.GetCallLegs(context.Background(), -1, from, till, 10000, 0, fields...)
+	resp, err := client.GetCallLegs(context.Background(), -1, from, till, 10000, 0, nil, fields...)
 	if err != nil {
 		return err
 	}
@@ -452,7 +467,9 @@ func download(folder, url string) error {
 
 	if _, err := os.Stat(filename); err != nil {
 		if os.IsNotExist(err) {
-			fmt.Println("download and create", filename)
+			if verbose {
+				fmt.Println("download and create", filename)
+			}
 			resp, err := http.Get(url)
 			if err != nil {
 				return err
@@ -474,7 +491,7 @@ func download(folder, url string) error {
 		}
 	} else {
 		if verbose {
-			fmt.Println("File", filename, "already exist")
+			fmt.Println("file", filename, "already exist")
 		}
 	}
 	return nil

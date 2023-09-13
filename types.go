@@ -1,21 +1,88 @@
 package uiscom
 
+import (
+	"fmt"
+	"strconv"
+)
+
+type FilterCondition string
+
+func (c FilterCondition) String() string {
+	return string(c)
+}
+
+const (
+	FilterConditionOr   = FilterCondition("or")
+	FilterConditionAnd  = FilterCondition("and")
+	FilterConditionNone = FilterCondition("")
+)
+
 type Filter struct {
 	Field    string
 	Operator string
-	Value    string
+	Value    any
+
+	filters   []Filter
+	condition FilterCondition
 }
 
-type FiltersCondition string
+func (f Filter) JsonPart() string {
+	if len(f.filters) == 0 {
+		return fmt.Sprintf("{\"field\":%s,\"operator\":%s,\"value\":%s}", strconv.Quote(f.Field), "\""+f.Operator+"\"", normalizeJsonValue(f.Value))
+	} else if len(f.filters) == 1 {
+		return f.filters[0].JsonPart()
+	}
 
-const (
-	FiltersConditionAnd = FiltersCondition("and")
-	FiltersConditionOr  = FiltersCondition("or")
-)
+	s := "{\"filters\":["
+	for i := range f.filters {
+		s += f.filters[i].JsonPart()
+		if i != len(f.filters)-1 {
+			s += ","
+		}
+	}
+	s += "],"
+	if f.condition != "" {
+		s += "\"condition\": \"" + string(f.condition) + "\"}"
+	}
+	return s
+}
 
-type Filters struct {
-	Filters   []Filter
-	Condition FiltersCondition
+func normalizeJsonValue(v any) string {
+	switch v.(type) {
+	case string:
+		return strconv.Quote(v.(string))
+	case int:
+		return strconv.Itoa(v.(int))
+	case bool:
+		if v.(bool) {
+			return "true"
+		} else {
+			return "false"
+		}
+	case nil:
+		return "null"
+	default:
+		return "unsupported type"
+	}
+}
+
+func GetFilterSingle(filter Filter) *Filter {
+	return filterSet(FilterConditionNone, filter)
+}
+
+func GetFilterOr(filter ...Filter) *Filter {
+	return filterSet(FilterConditionOr, filter...)
+}
+
+func GetFilterAnd(filter ...Filter) *Filter {
+	return filterSet(FilterConditionAnd, filter...)
+}
+
+func filterSet(condition FilterCondition, filter ...Filter) *Filter {
+	var f Filter
+	f.filters = append(f.filters, filter...)
+	f.condition = condition
+	return &f
 }
 
 type SortOrder string
@@ -24,6 +91,10 @@ const (
 	SortOrderAsc  = SortOrder("asc")
 	SortOrderDesc = SortOrder("desc")
 )
+
+func (o SortOrder) String() string {
+	return string(o)
+}
 
 type Sort struct {
 	Field string
